@@ -444,9 +444,20 @@
       return INSTITUTIONS.filter((inst) => inst.pattern.test(hay));
     }
 
+    const KEYWORD_SYNONYMS = {
+      "문화": ["문화", "콘텐츠", "문화재", "한류", "출판", "영화", "웹툰", "애니메이션"],
+      "예술": ["예술", "미술", "공연", "음악", "디자인", "공예", "연극", "무용"],
+      "AI": ["ai", "인공지능"],
+      "산업정책": ["산업정책", "산업 정책", "제조업", "산업전략"],
+      "저출산": ["저출산", "저출생", "인구위기", "인구절벽"],
+      "지역균형": ["지역균형", "균형발전", "지방소멸", "지역소멸"],
+    };
+    const synonymsFor = (k) => (KEYWORD_SYNONYMS[k] || [k]).map((s) => s.toLowerCase());
+
     function matchedKeywords(e) {
-      const hay = `${e.title} ${e.text} ${e.host} ${e.cohost} ${e.committee}`.toLowerCase();
-      return KEYWORDS.filter((k) => state.activeKeywords.has(k) && hay.includes(k.toLowerCase()));
+      // 설명문(text)은 장소명이 섞여 오탐을 부르므로 매칭에서 제외 (제목·주최·위원회만)
+      const hay = `${e.title} ${e.host} ${e.cohost} ${e.committee}`.toLowerCase();
+      return KEYWORDS.filter((k) => state.activeKeywords.has(k) && synonymsFor(k).some((s) => hay.includes(s)));
     }
 
     function scoreEvent(e, matched) {
