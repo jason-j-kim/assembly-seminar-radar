@@ -1,0 +1,19 @@
+{
+  "name": "assembly-seminar-radar",
+  "version": "1.0.0",
+  "description": "국회 관련 토론회·정책세미나를 2주 이내 + 관심 키워드 중심으로 매일 자동 선별하는 웹 페이지",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "daily": "node fetch-daily.js",
+    "daily:sample": "node fetch-daily.js --sample",
+    "build:static": "node build-static.js",
+    "build:static:sample": "node build-static.js --sample",
+    "build:data": "node build-data.js",
+    "build:remote": "node build-remote.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,6 @@
+.env
+node_modules/
+digest/
+dist/
+public/
+*.log
