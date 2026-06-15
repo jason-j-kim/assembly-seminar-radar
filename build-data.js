@@ -9,6 +9,7 @@
 //        node build-data.js --sample   (키 없이 샘플로)
 
 import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./lib/env.js";
@@ -65,19 +66,26 @@ async function gather(now) {
 
 async function main() {
   const now = new Date();
-  const { upcoming, past } = await gather(now);
-  const { events, upCount, pastCount } = combine(upcoming, past, now);
-
   const outDir = join(ROOT, "public");
-  await mkdir(outDir, { recursive: true });
   const outFile = join(outDir, "data.json");
-  await writeFile(outFile, JSON.stringify({ generatedAt: stamp(now), count: events.length, events }), "utf8");
+  await mkdir(outDir, { recursive: true });
 
-  console.log(`데이터 생성: ${outFile}`);
-  console.log(`기준 ${stamp(now)} · 예정 ${upCount}건 + 지난(발제자 포함) ${pastCount}건 = 총 ${events.length}건 · 키 미포함(${USE_SAMPLE ? "샘플" : "실데이터"})`);
+  try {
+    const { upcoming, past } = await gather(now);
+    const { events, upCount, pastCount } = combine(upcoming, past, now);
+    await writeFile(outFile, JSON.stringify({ generatedAt: stamp(now), count: events.length, events }), "utf8");
+    console.log(`데이터 생성: ${outFile}`);
+    console.log(`기준 ${stamp(now)} · 예정 ${upCount}건 + 지난(발제자 포함) ${pastCount}건 = 총 ${events.length}건 · 키 미포함(${USE_SAMPLE ? "샘플" : "실데이터"})`);
+  } catch (error) {
+    // 국회 서버가 일시 불통(해외 CI에서 간헐 발생)일 때: 저장소에 커밋된 직전 data.json 을
+    // 그대로 두고 배포는 계속한다. (페이지/코드 배포가 데이터 조회 실패로 멈추지 않도록)
+    if (existsSync(outFile)) {
+      console.warn(`데이터 갱신 실패(${error.message}) → 저장소의 직전 data.json 유지하고 배포 계속`);
+      return;
+    }
+    console.error("데이터 빌드 실패 및 fallback 없음:", error.message);
+    process.exit(1);
+  }
 }
 
-main().catch((error) => {
-  console.error("데이터 빌드 실패:", error.message);
-  process.exit(1);
-});
+main();

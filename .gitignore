@@ -2,5 +2,5 @@
 node_modules/
 digest/
 dist/
-public/
+public/index.html
 *.log
