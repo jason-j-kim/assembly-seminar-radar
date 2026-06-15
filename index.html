@@ -180,6 +180,8 @@
     .event-title { margin-bottom: 7px; font-size: 15px; font-weight: 820; }
     .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
     .tag { border-radius: 999px; background: var(--soft); color: #355046; padding: 4px 7px; font-size: 12px; }
+    .people { margin-top: 6px; font-size: 12.5px; color: #42504a; line-height: 1.5; }
+    .people .ple { display: inline-block; min-width: 30px; margin-right: 4px; color: var(--accent); font-weight: 800; }
     .badge {
       border-radius: 999px; background: var(--gold-soft); color: var(--gold);
       padding: 4px 8px; font-size: 11px; font-weight: 800;
@@ -292,6 +294,7 @@
             <button data-range="today">오늘</button>
             <button data-range="week">이번 주</button>
             <button data-range="two" class="active">2주</button>
+            <button data-range="past" title="발제자·토론자 정보가 있는 지난 세미나">지난</button>
           </div>
           <div class="toggle" id="viewToggle" aria-label="보기 방식">
             <button data-view="table" class="active">표</button>
@@ -370,18 +373,32 @@
       return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
     }
 
-    function rangeEnd() {
-      if (state.range === "today") return startOfDay(today);
-      if (state.range === "week") {
-        // 이번 주 일요일(주말)까지. 0=일요일
-        const dow = today.getDay();
-        const toSunday = dow === 0 ? 0 : 7 - dow;
-        return startOfDay(addDays(today, toSunday));
+    function rangeBounds() {
+      const todayStart = startOfDay(today);
+      if (state.range === "past") {
+        // 지난 45일 (발제자·토론자 포함 개최분)
+        return { start: startOfDay(addDays(today, -45)).getTime(), end: todayStart.getTime() - 1 };
       }
-      return startOfDay(addDays(today, 14));
+      let endDay;
+      if (state.range === "today") endDay = todayStart;
+      else if (state.range === "week") {
+        const dow = today.getDay();
+        endDay = startOfDay(addDays(today, dow === 0 ? 0 : 7 - dow));
+      } else endDay = startOfDay(addDays(today, 14));
+      return { start: todayStart.getTime(), end: endDay.getTime() + 24 * 60 * 60 * 1000 - 1 };
     }
 
     /* ── 데이터 처리 ────────────────────────────────────── */
+    function cleanDate(value) {
+      const m = String(value).replace(/[.]/g, "-").match(/(\d{4})-?(\d{1,2})-?(\d{1,2})/);
+      if (!m) return String(value || "").trim();
+      return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+    }
+    function extractTime(value) {
+      const m = String(value).match(/(\d{1,2}:\d{2})/);
+      return m ? m[1] : "";
+    }
+
     function normalizeEvent(row) {
       const pick = (...names) => {
         for (const name of names) {
@@ -389,17 +406,22 @@
         }
         return "";
       };
-      // nfcoioopazrwmjrgs 실제 필드: TITLE, LINK, DESCRIPTION, SDATE, STIME, NAME, LOCATION, IMGLINK, PHONE
+      // 일정 API(nfcoioopazrwmjrgs) + 개최현황 API(nbqbmccpamsvwebkn: 발제자·토론자) 공통 매핑
+      const rawDate = pick("SDATE", "HOST_DT", "date", "DATE", "SEMINAR_DATE", "EVENT_DT", "EVT_DT", "START_DE", "FR_DT", "DT");
+      const time = pick("STIME", "time", "TIME", "SEMINAR_TIME", "EVENT_TIME", "EVT_TIME", "START_TIME") || extractTime(rawDate);
       return {
         title: pick("TITLE", "title", "SEMINAR_TITLE", "EVENT_TITLE", "EVT_NM", "EVENT_NM", "BBS_SJ", "SJ"),
-        date: pick("SDATE", "date", "DATE", "SEMINAR_DATE", "EVENT_DT", "EVT_DT", "START_DE", "FR_DT", "DT"),
-        time: pick("STIME", "time", "TIME", "SEMINAR_TIME", "EVENT_TIME", "EVT_TIME", "START_TIME"),
-        place: pick("LOCATION", "place", "PLACE", "SEMINAR_PLACE", "EVENT_PLACE", "EVT_PLACE", "PLC", "LC"),
-        host: pick("NAME", "host", "HOST", "HOST_NM", "MNA_NM", "POLY_NM", "RPRS_NM", "HG_NM"),
+        date: cleanDate(rawDate),
+        time,
+        place: pick("LOCATION", "HOST_PLACE_NAME", "place", "PLACE", "SEMINAR_PLACE", "EVENT_PLACE", "EVT_PLACE", "PLC", "LC"),
+        host: pick("NAME", "HOST_INS_NAME", "host", "HOST", "HOST_NM", "MNA_NM", "POLY_NM", "RPRS_NM", "HG_NM"),
         cohost: pick("cohost", "COHOST", "JOINT_HOST", "ORGANIZER", "ORGNZT_NM", "SPONSOR"),
         committee: pick("committee", "COMMITTEE", "CMIT_NM", "COMMITTEE_NM", "CMT_NM"),
-        link: pick("LINK", "link", "URL", "DETAIL_URL", "HMPG_URL"),
+        link: pick("LINK", "DETAIL_VIEW_URL", "link", "URL", "DETAIL_URL", "HMPG_URL"),
         text: pick("DESCRIPTION", "text", "CONTENT", "SUMMARY", "RM", "DESC", "CN"),
+        presenters: pick("presenters", "ATTENDANCE_NAME1"),
+        discussants: pick("discussants", "ATTENDANCE_NAME2"),
+        kind: String(row.kind || "").trim(),
       };
     }
 
@@ -437,8 +459,7 @@
     }
 
     function withinRange() {
-      const start = startOfDay(today).getTime();
-      const end = rangeEnd().getTime() + 24 * 60 * 60 * 1000 - 1;
+      const { start, end } = rangeBounds();
       return state.raw
         .map(normalizeEvent)
         .map((e) => ({ ...e, timestamp: dateValue(e.date) }))
@@ -476,7 +497,11 @@
     function briefingText(e) {
       const matched = e.matched.length ? e.matched.join(", ") : "관심 키워드";
       const insts = e.institutions.length ? ` ${e.institutions.map((i) => i.label).join("·")} 참여.` : "";
-      return `${e.host || "주최 미확인"} 주최, ${e.place || "장소 미확인"}에서 열립니다. ${matched} 키워드가 잡혔고, ${e.committee || "관련 위원회 미확인"}와 연결해 볼 만합니다.${insts}`;
+      const people = [];
+      if (e.presenters) people.push(`발제: ${e.presenters}`);
+      if (e.discussants) people.push(`토론: ${e.discussants}`);
+      const peopleStr = people.length ? ` ${people.join(" / ")}.` : "";
+      return `${e.host || "주최 미확인"} 주최, ${e.place || "장소 미확인"}에서 ${e.kind === "past" ? "열렸습니다" : "열립니다"}. ${matched} 키워드가 잡혔고, ${e.committee || "관련 위원회 미확인"}와 연결해 볼 만합니다.${insts}${peopleStr}`;
     }
 
     function badgeHtml(e) {
@@ -553,6 +578,8 @@
                     ${badgeHtml(e)}
                     ${e.matched.map((k) => `<span class="tag">${escapeHtml(k)}</span>`).join("")}
                   </div>
+                  ${e.presenters ? `<div class="people"><span class="ple">발제</span> ${escapeHtml(e.presenters)}</div>` : ""}
+                  ${e.discussants ? `<div class="people"><span class="ple">토론</span> ${escapeHtml(e.discussants)}</div>` : ""}
                 </td>
                 <td class="col-date" data-label="일시">${escapeHtml(e.date || "-")}<br>${escapeHtml(e.time || "")}</td>
                 <td data-label="장소">${escapeHtml(e.place || "-")}</td>
@@ -603,25 +630,28 @@
     }
 
     function toCsv(events) {
-      const header = ["중요도", "제목", "일자", "시간", "장소", "주최", "공동주최", "위원회", "키워드", "연구기관", "링크"];
+      const header = ["중요도", "제목", "일자", "시간", "장소", "주최", "발제자", "토론자", "위원회", "키워드", "연구기관", "링크"];
       const cell = (v) => {
         const s = String(v ?? "").replace(/"/g, '""');
         return /[",\n]/.test(s) ? `"${s}"` : s;
       };
-      const rows = events.map((e) => [e.score, e.title, e.date, e.time, e.place, e.host, e.cohost, e.committee, e.matched.join(" "), e.institutions.map((i) => i.label).join(" "), e.link && e.link !== "#" ? e.link : ""].map(cell).join(","));
+      const rows = events.map((e) => [e.score, e.title, e.date, e.time, e.place, e.host, e.presenters || "", e.discussants || "", e.committee, e.matched.join(" "), e.institutions.map((i) => i.label).join(" "), e.link && e.link !== "#" ? e.link : ""].map(cell).join(","));
       return "﻿" + [header.join(","), ...rows].join("\r\n");
     }
 
     function toMarkdown(events) {
-      const lines = [`# 국회 토론회 레이더 — ${ymd(today)}`, "", `기준: ${state.range === "today" ? "오늘" : state.range === "week" ? "이번 주" : "2주 이내"} · 매칭 ${events.length}건`, ""];
-      if (!events.length) { lines.push("> 조건에 맞는 예정 세미나가 없습니다."); return lines.join("\n"); }
+      const rangeLabel = state.range === "today" ? "오늘" : state.range === "week" ? "이번 주" : state.range === "past" ? "지난 세미나" : "2주 이내";
+      const lines = [`# 국회 토론회 레이더 — ${ymd(today)}`, "", `기준: ${rangeLabel} · 매칭 ${events.length}건`, ""];
+      if (!events.length) { lines.push("> 조건에 맞는 세미나가 없습니다."); return lines.join("\n"); }
       events.forEach((e, i) => {
         const insts = e.institutions.length ? ` _(${e.institutions.map((x) => x.label).join(", ")})_` : "";
         lines.push(`## ${i + 1}. ${e.title || "제목 없음"} · 중요도 ${e.score}${insts}`);
         lines.push(`- 일시: ${e.date || "-"} ${e.time || ""}`.trim());
         lines.push(`- 장소: ${e.place || "-"}`);
         lines.push(`- 주최: ${e.host || "-"}${e.cohost ? ` / 공동 ${e.cohost}` : ""}`);
-        lines.push(`- 위원회: ${e.committee || "-"}`);
+        if (e.presenters) lines.push(`- 발제자: ${e.presenters}`);
+        if (e.discussants) lines.push(`- 토론자: ${e.discussants}`);
+        if (e.committee) lines.push(`- 위원회: ${e.committee}`);
         if (e.matched.length) lines.push(`- 키워드: ${e.matched.join(", ")}`);
         if (e.link && e.link !== "#") lines.push(`- 링크: ${e.link}`);
         lines.push("");
